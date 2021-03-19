@@ -12,14 +12,17 @@ Build patch files are available in /builds/. You will need a patcher program and
 Source code is available in /src/. You will need a US rom of SM64. My code is reaaaally messy, since I've worked on this since I first started learning C. Everything should work fine though.
 
 # Credits
+```
 Jefftastic - Main programmer, modeler, and director
 Greenfield - Compositions, being an absolute bro
 blameitontherobot - Compositions, modeler, minor programming
 superdave - Modeler, renders
 MariHalo - Modeler
 tele - Modeler, minor programming
+```
 
-This project also had several contributors, which are the following:
+## This project also had several contributors, which are the following:
+```
 andrei-the-perfect - textures
 BlackJoystick - painting contest
 iProgramInCPP - minor programming
@@ -32,3 +35,4 @@ Sinclair - painting contest
 Godly - textures
 Teevee - painting contest
 Tom in real - painting contest
+```
