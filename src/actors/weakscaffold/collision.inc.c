@@ -1,0 +1,13 @@
+const Collision weakscaffold_collision[] = {
+	COL_INIT(),
+	COL_VERTEX_INIT(4),
+	COL_VERTEX(504, 369, 247),
+	COL_VERTEX(504, -376, -251),
+	COL_VERTEX(-507, -362, -242),
+	COL_VERTEX(-507, 369, 247),
+	COL_TRI_INIT(SURFACE_DEFAULT, 2),
+	COL_TRI(0, 1, 2),
+	COL_TRI(0, 2, 3),
+	COL_TRI_STOP(),
+	COL_END()
+};

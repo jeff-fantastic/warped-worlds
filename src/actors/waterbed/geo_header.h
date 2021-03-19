@@ -1,0 +1,10 @@
+extern const GeoLayout waterbed_geo[];
+extern Lights1 waterbed_sm64_material_004_lights;
+extern u8 waterbed_SUPER_MARIO_64_1CA18F8F_0_2_all_ci8[];
+extern u8 waterbed_SUPER_MARIO_64_1CA18F8F_0_2_all_ci8_pal_rgba16[];
+extern Vtx waterbed_Water_Visual_001_mesh_vtx_0[32];
+extern Gfx waterbed_Water_Visual_001_mesh_tri_0[];
+extern Gfx mat_waterbed_sm64_material_004[];
+extern Gfx mat_revert_waterbed_sm64_material_004[];
+extern Gfx waterbed_Water_Visual_001_mesh[];
+extern Gfx waterbed_material_revert_render_settings[];

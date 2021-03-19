@@ -1,0 +1,13 @@
+--- src/engine/surface_load.h
++++ src/engine/surface_load.h
+@@ -27,8 +31,8 @@ typedef struct SurfaceNode SpatialPartitionCell[3];
+ // Needed for bs bss reordering memes.
+ extern s32 unused8038BE90;
+ 
+-extern SpatialPartitionCell gStaticSurfacePartition[16][16];
+-extern SpatialPartitionCell gDynamicSurfacePartition[16][16];
++extern SpatialPartitionCell gStaticSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
++extern SpatialPartitionCell gDynamicSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
+ extern struct SurfaceNode *sSurfaceNodePool;
+ extern struct Surface *sSurfacePool;
+ extern s16 sSurfacePoolSize;

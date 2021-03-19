@@ -1,0 +1,14 @@
+extern const GeoLayout weakscaffold_geo[];
+extern u8 weakscaffold_scaffold_ci8[];
+extern u8 weakscaffold_scaffold_ci8_pal_rgba16[];
+extern u8 weakscaffold_marker_ia16[];
+extern Vtx weakscaffold_Flying_Fartress_009_mesh_vtx_0[5];
+extern Gfx weakscaffold_Flying_Fartress_009_mesh_tri_0[];
+extern Vtx weakscaffold_Flying_Fartress_009_mesh_vtx_1[4];
+extern Gfx weakscaffold_Flying_Fartress_009_mesh_tri_1[];
+extern Gfx mat_weakscaffold_sm64_material[];
+extern Gfx mat_revert_weakscaffold_sm64_material[];
+extern Gfx mat_weakscaffold_sm64_material_002[];
+extern Gfx mat_revert_weakscaffold_sm64_material_002[];
+extern Gfx weakscaffold_Flying_Fartress_009_mesh[];
+extern Gfx weakscaffold_material_revert_render_settings[];

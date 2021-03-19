@@ -1,0 +1,13 @@
+--- src/engine/surface_collision.h
++++ src/engine/surface_collision.h
+@@ -4,9 +4,8 @@
+ #include <PR/ultratypes.h>
+ 
+ #include "types.h"
++#include "engine/extended_bounds.h"
+ 
+-#define LEVEL_BOUNDARY_MAX 0x2000
+-#define CELL_SIZE          0x400
+ 
+ struct WallCollisionData
+ {

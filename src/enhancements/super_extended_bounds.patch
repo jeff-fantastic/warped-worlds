@@ -1,0 +1,653 @@
+diff --git a/include/segment_symbols.h b/include/segment_symbols.h
+index 22b3713..306a998 100644
+--- a/include/segment_symbols.h
++++ b/include/segment_symbols.h
+@@ -40,7 +40,12 @@ DECLARE_SEGMENT(engine)
+ DECLARE_SEGMENT(behavior)
+ DECLARE_SEGMENT(scripts)
+ DECLARE_SEGMENT(goddard)
++DECLARE_SEGMENT(framebuffers)
+ extern u8 _goddardSegmentStart[];
++extern u8 _engineSegmentStart[];
++extern u8 _engineSegmentNoloadEnd[];
++extern u8 _engineSegmentEnd[];
++extern u8 _framebuffersSegmentNoloadEnd[];
+ 
+ DECLARE_LEVEL_SEGMENT(menu)
+ DECLARE_LEVEL_SEGMENT(intro)
+diff --git a/include/segments.h b/include/segments.h
+index 8963446..0dbc887 100644
+--- a/include/segments.h
++++ b/include/segments.h
+@@ -1,6 +1,9 @@
+ #ifndef SEGMENTS_H
+ #define SEGMENTS_H
+ 
++#ifndef LINKER
++#include "segment_symbols.h"
++#endif
+ /*
+  * Memory addresses for segments. Ideally, this header file would not be
+  * needed, and the addresses would be defined in sm64.ld and linker-inserted
+@@ -11,46 +14,21 @@
+  * linker script syntax.
+ */
+ 
+-#ifndef USE_EXT_RAM /* Default: Runs out of memory quickly when importing custom assets. */
+-
+-#define SEG_POOL_START   0x8005C000
+-#define SEG_POOL_END     SEG_BUFFERS
+-
+-#define SEG_GODDARD      0x8016F000
+-
+-#define SEG_BUFFERS      0x801C1000
+-
+-#ifdef VERSION_EU
+-#define SEG_MAIN         0x80241800 // TODO: Investigate why it's different?
+-#elif defined(VERSION_SH)
+-#define SEG_MAIN         0x80249000
+-#else
+-#define SEG_MAIN         0x80246000
+-#endif
+-
+-#ifdef VERSION_EU
+-#define SEG_ENGINE       0x8036FF00
++#define USE_EXT_RAM
++#ifndef USE_EXT_RAM
++#define RAM_END          0x80400000
+ #else
+-#define SEG_ENGINE       0x80378800
++#define RAM_END          0x80800000
+ #endif
+ 
+-#define SEG_FRAMEBUFFERS 0x8038F800
+-
+-#else /* Use Expansion Pak space for pool. */
+-
+ /*
+  * Workaround for running out of pool space due to
+  * importing large custom content.
+  */
+ 
+-#define SEG_BUFFERS      0x8005C000 // 0x0085000 in size
+-#define SEG_MAIN         0x800E1000 // 0x1328000 in size
+-#define SEG_ENGINE       0x80213800 // 0x0017000 in size
+-#define SEG_FRAMEBUFFERS 0x8022A800 // 0x0070800 in size
+-#define SEG_POOL_START   0x8029B000 // 0x0165000 in size
+-#define SEG_POOL_END     0x80800000
+-#define SEG_POOL_END_4MB 0x80400000 // For the error message screen enhancement.
++#define SEG_POOL_START   _framebuffersSegmentNoloadEnd // 0x0165000 in size
+ #define SEG_GODDARD      SEG_POOL_START + 0x113000
+-#endif
++
++#define POOL_SIZE        RAM_END - SEG_POOL_START
+ 
+ #endif // SEGMENTS_H
+diff --git a/sm64.ld b/sm64.ld
+index e6f5c94..6741dac 100755
+--- a/sm64.ld
++++ b/sm64.ld
+@@ -1,8 +1,8 @@
+ OUTPUT_ARCH (mips)
+ 
+-/* include/segments.h defines SEG_POOL_START, SEG_POOL_END, SEG_BUFFERS,
+- * SEG_GODDARD, SEG_MAIN, SEG_ENGINE, SEG_FRAMEBUFFERS */
++#define LINKER /* Removes externs from preprocessed script */
+ #include "segments.h"
++#undef LINKER
+ 
+ #define BEGIN_SEG(name, addr) \
+     _##name##SegmentStart = ADDR(.name); \
+@@ -79,7 +79,31 @@ SECTIONS
+    BEGIN_NOLOAD(zbuffer) {
+       BUILD_DIR/src/buffers/zbuffer.o(.bss*);
+    }
++   END_NOLOAD(zbuffer)
+ 
++   . = _zbufferSegmentNoloadEnd;
++   BEGIN_NOLOAD(buffers)
++   {
++      BUILD_DIR/src/buffers/buffers.o(.bss*);
++      BUILD_DIR/src/audio/globals_start.o(.bss*);
++      BUILD_DIR/src/audio/synthesis.o(.bss*);
++      BUILD_DIR/src/audio/heap.o(.bss*);
++      BUILD_DIR/src/audio/load.o(.bss*);
++      BUILD_DIR/src/audio/data.o(.bss*);
++      BUILD_DIR/src/audio*.o(.bss*);
++
++#ifdef VERSION_EU
++      . = ALIGN(0x200);
++#else
++      . = ALIGN(0x1000);
++#endif
++      BUILD_DIR/src/buffers/gfx_output_buffer.o(.bss*);
++   }
++   END_NOLOAD(buffers)
++
++   /*ASSERT((. <= SEG_MAIN), "Error: buffers segment extended into main")*/
++
++   . = _buffersSegmentNoloadEnd;
+    /* lib/src/__osDevMgrMain.c and lib/src/osCreateViManager.c contain infinite
+     * loops compiled without -g, which cause the return statements and the .o
+     * files themselves to be aligned to 32-byte boundaries. But the linker
+@@ -87,7 +111,7 @@ SECTIONS
+     * only to 16 bytes, in some cases misaligning them. We force the same to
+     * happen using the SUBALIGN directive. This is harmless; the alignment is
+     * just an optimization. */
+-   BEGIN_SEG(main, SEG_MAIN) SUBALIGN(16)
++   BEGIN_SEG(main, .) SUBALIGN(16)
+    {
+       BUILD_DIR/asm/entry.o(.text);
+       BUILD_DIR/src/game/crash_screen.o(.text);
+@@ -642,9 +666,11 @@ SECTIONS
+    _mainSegmentNoloadSizeLo = SIZEOF (.main.noload) & 0xffff;
+    _mainSegmentNoloadSizeHi = SIZEOF (.main.noload) >> 16;
+ 
+-   ASSERT((. <= SEG_ENGINE), "Error: main segment extended into engine.")
++   /*ASSERT((. <= SEG_ENGINE), "Error: main segment extended into engine.")*/
++
++   . = _mainSegmentNoloadEnd;
+ 
+-   BEGIN_SEG(engine, SEG_ENGINE)
++   BEGIN_SEG(engine, .)
+    {
+       BUILD_DIR/src/engine/math_util.o(.text);
+       BUILD_DIR/src/engine/graph_node.o(.text);
+@@ -700,18 +726,23 @@ SECTIONS
+       BUILD_DIR/src/game/object_helpers.o(.bss*);
+ #endif
+       BUILD_DIR/src/engine*.o(.bss*);
++      . = ALIGN(0x100);
+    }
+    END_NOLOAD(engine)
+ 
+-   ASSERT((. <= SEG_FRAMEBUFFERS), "Error: engine segment extended into framebuffers.")
++   /*ASSERT((. <= SEG_FRAMEBUFFERS), "Error: engine segment extended into framebuffers.")*/
+ 
+-   . = SEG_FRAMEBUFFERS;
++   . = _engineSegmentNoloadEnd;
+    BEGIN_NOLOAD(framebuffers)
+    {
+       BUILD_DIR/src/buffers/framebuffers.o(.bss*);
++      . = ALIGN(0x100);
+    }
+    END_NOLOAD(framebuffers)
+ 
++   __mainPoolStart = .;
++   __mainPoolSize = RAM_END - .;
++
+    __expansionRamStart = 0x80400000;
+    ASSERT((. <= __expansionRamStart), "Error: RDRAM expanded into Expansion RAM, despite Expansion RAM not being defined.")
+ 
+@@ -848,29 +879,8 @@ SECTIONS
+    }
+    END_NOLOAD(goddard)
+ 
+-   ASSERT((. <= SEG_POOL_END), "Error: extended past pool end.")
+-
+-   . = SEG_BUFFERS;
+-   BEGIN_NOLOAD(buffers)
+-   {
+-      BUILD_DIR/src/buffers/buffers.o(.bss*);
+-      BUILD_DIR/src/audio/globals_start.o(.bss*);
+-      BUILD_DIR/src/audio/synthesis.o(.bss*);
+-      BUILD_DIR/src/audio/heap.o(.bss*);
+-      BUILD_DIR/src/audio/load.o(.bss*);
+-      BUILD_DIR/src/audio/data.o(.bss*);
+-      BUILD_DIR/src/audio*.o(.bss*);
+-
+-#ifdef VERSION_EU
+-      . = ALIGN(0x200);
+-#else
+-      . = ALIGN(0x1000);
+-#endif
+-      BUILD_DIR/src/buffers/gfx_output_buffer.o(.bss*);
+-   }
+-   END_NOLOAD(buffers)
++   ASSERT((. <= (SEG_POOL_START + POOL_SIZE)), "Error: extended past pool end.")
+ 
+-   ASSERT((. <= SEG_MAIN), "Error: buffers segment extended into main")
+ 
+    /* 0x268020 0x268020-0 [0] */
+    BEGIN_SEG(intro, 0x14000000)
+diff --git a/src/engine/extended_bounds.h b/src/engine/extended_bounds.h
+new file mode 100644
+index 0000000..5d8e1f4
+--- /dev/null
++++ b/src/engine/extended_bounds.h
+@@ -0,0 +1,77 @@
++#ifndef __EXTENDED_BOUNDS_H__
++#define __EXTENDED_BOUNDS_H__
++
++/*
++    Better Extended Bounds by anonymous_moose
++        Thanks to someone2639 for the shiftable segments patch
++        Thanks to Wiseguy for the Surface Pool Full error code and 4x bounds fix
++
++    0: Regular bounds
++        Same as vanilla sm64, boundaries are (-8192 to 8191)
++        16x16 collision cells.
++    1: 2x extended bounds
++        level boundaries are twice as big (-16384 to 16383)
++        Collision calculations remain as fast as vanilla, at the cost of using more RAM.
++        32x32 collision cells.
++    2: Regular bounds (performance)
++        Same boundaries as vanilla (-8192 to 8191), but with twice the amount of collision cells
++        Trades more RAM usage for faster collision calculations.
++        32x32 collision cells.
++    3: 4x extended bounds
++        level boundaries are 4 times as big (-32768 to 32767)
++        Collision calculations remain as fast as vanilla, at the cost of using far more RAM (16 times vanilla).
++        64x64 collision cells.
++    
++
++    If you see "SURFACE POOL FULL" or "SURFACE NODE POOL FULL" in game, you should increase 
++    SURFACE_POOL_SIZE or SURFACE_NODE_POOL_SIZE, respectively, or reduce the amount of 
++    collision surfaces in your level.
++*/
++
++//for the static assert macro
++#include "macros.h"
++
++//set this to the extended bounds mode you want, then do "make clean".
++#define EXTENDED_BOUNDS_MODE 1
++
++//the maximum amount of collision surfaces (static and dynamic combined)
++//8200 should work fine for a 2x extended stage, the vanilla value is 2300
++#define SURFACE_POOL_SIZE 4000
++
++//make this approximately (amount of collision cells) + (SURFACE_POOL_SIZE * 3)
++//22000 should work fine for a 2x extended stage, the vanilla value is 7000
++#define SURFACE_NODE_POOL_SIZE 12000
++
++//don't touch the stuff past this point unless you know what you're doing!
++
++//default value to check if the user set a proper extended bounds mode
++#define LEVEL_BOUNDARY_MAX 0x0000
++
++#if EXTENDED_BOUNDS_MODE == 0
++    #undef LEVEL_BOUNDARY_MAX // Undefine the old value to avoid compiler warnings
++    #define LEVEL_BOUNDARY_MAX 0x2000L
++    #define CELL_SIZE          0x400
++#elif EXTENDED_BOUNDS_MODE == 1
++    #undef LEVEL_BOUNDARY_MAX
++    #define LEVEL_BOUNDARY_MAX 0x4000L
++    #define CELL_SIZE          0x400
++#elif EXTENDED_BOUNDS_MODE == 2
++    #undef LEVEL_BOUNDARY_MAX
++    #define LEVEL_BOUNDARY_MAX 0x2000L
++    #define CELL_SIZE          0x200
++#elif EXTENDED_BOUNDS_MODE == 3
++    #undef LEVEL_BOUNDARY_MAX
++    #define LEVEL_BOUNDARY_MAX 0x8000L
++    #define CELL_SIZE          0x400
++#endif
++
++STATIC_ASSERT(LEVEL_BOUNDARY_MAX != 0, "You must set a valid extended bounds mode!");
++
++#define CELL_AMOUNT (2 * LEVEL_BOUNDARY_MAX / CELL_SIZE)
++#define CELL_AMOUNT_MINUS_ONE (CELL_AMOUNT - 1)
++
++#define NOT_ENOUGH_ROOM_FOR_SURFACES (1 << 0)
++#define NOT_ENOUGH_ROOM_FOR_NODES    (1 << 1)
++
++
++#endif // __EXTENDED_BOUNDS_H__
+diff --git a/src/engine/surface_collision.c b/src/engine/surface_collision.c
+index 9aff62f..a0aadcd 100644
+--- a/src/engine/surface_collision.c
++++ b/src/engine/surface_collision.c
+@@ -199,8 +199,8 @@ s32 find_wall_collisions(struct WallCollisionData *colData) {
+ 
+     // World (level) consists of a 16x16 grid. Find where the collision is on
+     // the grid (round toward -inf)
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
+ 
+     // Check for surfaces belonging to objects.
+     node = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_WALLS].next;
+@@ -327,8 +327,8 @@ f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
+     }
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
+ 
+     // Check for surfaces belonging to objects.
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_CEILS].next;
+@@ -494,8 +494,8 @@ f32 unused_find_dynamic_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfl
+     s16 z = (s16) zPos;
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    s16 cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
+-    s16 cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
++    s16 cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
++    s16 cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
+ 
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_FLOORS].next;
+     floor = find_floor_from_list(surfaceList, x, y, z, &floorHeight);
+@@ -534,8 +534,8 @@ f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+     }
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & CELL_AMOUNT_MINUS_ONE;
+ 
+     // Check for surfaces belonging to objects.
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_FLOORS].next;
+@@ -689,22 +689,22 @@ void debug_surface_list_info(f32 xPos, f32 zPos) {
+     s32 cellX = (xPos + LEVEL_BOUNDARY_MAX) / CELL_SIZE;
+     s32 cellZ = (zPos + LEVEL_BOUNDARY_MAX) / CELL_SIZE;
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_FLOORS].next;
++    list = gStaticSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_FLOORS].next;
+     numFloors += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_FLOORS].next;
++    list = gDynamicSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_FLOORS].next;
+     numFloors += surface_list_length(list);
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_WALLS].next;
++    list = gStaticSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_WALLS].next;
+     numWalls += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_WALLS].next;
++    list = gDynamicSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_WALLS].next;
+     numWalls += surface_list_length(list);
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_CEILS].next;
++    list = gStaticSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_CEILS].next;
+     numCeils += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_CEILS].next;
++    list = gDynamicSurfacePartition[cellZ & CELL_AMOUNT_MINUS_ONE][cellX & CELL_AMOUNT_MINUS_ONE][SPATIAL_PARTITION_CEILS].next;
+     numCeils += surface_list_length(list);
+ 
+     print_debug_top_down_mapinfo("area   %x", cellZ * 16 + cellX);
+diff --git a/src/engine/surface_collision.h b/src/engine/surface_collision.h
+index 71898d3..4365fac 100644
+--- a/src/engine/surface_collision.h
++++ b/src/engine/surface_collision.h
+@@ -4,9 +4,8 @@
+ #include <PR/ultratypes.h>
+ 
+ #include "types.h"
++#include "engine/extended_bounds.h"
+ 
+-#define LEVEL_BOUNDARY_MAX 0x2000
+-#define CELL_SIZE          0x400
+ 
+ struct WallCollisionData
+ {
+diff --git a/src/engine/surface_load.c b/src/engine/surface_load.c
+index 6936d8a..706d770 100644
+--- a/src/engine/surface_load.c
++++ b/src/engine/surface_load.c
+@@ -21,8 +21,8 @@ s32 unused8038BE90;
+  * Partitions for course and object surfaces. The arrays represent
+  * the 16x16 cells that each level is split into.
+  */
+-SpatialPartitionCell gStaticSurfacePartition[16][16];
+-SpatialPartitionCell gDynamicSurfacePartition[16][16];
++SpatialPartitionCell gStaticSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
++SpatialPartitionCell gDynamicSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
+ 
+ /**
+  * Pools of data to contain either surface nodes or surfaces.
+@@ -37,6 +37,8 @@ s16 sSurfacePoolSize;
+ 
+ u8 unused8038EEA8[0x30];
+ 
++u8 gSurfacePoolError;
++
+ /**
+  * Allocate the part of the surface node pool to contain a surface node.
+  */
+@@ -49,7 +51,8 @@ static struct SurfaceNode *alloc_surface_node(void) {
+     //! A bounds check! If there's more surface nodes than 7000 allowed,
+     //  we, um...
+     // Perhaps originally just debug feedback?
+-    if (gSurfaceNodesAllocated >= 7000) {
++    if (gSurfaceNodesAllocated >= SURFACE_NODE_POOL_SIZE) {
++        gSurfacePoolError |= NOT_ENOUGH_ROOM_FOR_NODES;
+     }
+ 
+     return node;
+@@ -68,6 +71,7 @@ static struct Surface *alloc_surface(void) {
+     //  we, um...
+     // Perhaps originally just debug feedback?
+     if (gSurfacesAllocated >= sSurfacePoolSize) {
++        gSurfacePoolError |= NOT_ENOUGH_ROOM_FOR_SURFACES;
+     }
+ 
+     surface->type = 0;
+@@ -83,7 +87,7 @@ static struct Surface *alloc_surface(void) {
+  * Iterates through the entire partition, clearing the surfaces.
+  */
+ static void clear_spatial_partition(SpatialPartitionCell *cells) {
+-    register s32 i = 16 * 16;
++    register s32 i = CELL_AMOUNT * CELL_AMOUNT;
+ 
+     while (i--) {
+         (*cells)[SPATIAL_PARTITION_FLOORS].next = NULL;
+@@ -197,22 +201,22 @@ static s16 max_3(s16 a0, s16 a1, s16 a2) {
+  * time). This function determines the lower cell for a given x/z position.
+  * @param coord The coordinate to test
+  */
+-static s16 lower_cell_index(s16 coord) {
++static s16 lower_cell_index(s32 coord) {
+     s16 index;
+ 
+-    // Move from range [-0x2000, 0x2000) to [0, 0x4000)
+-    coord += 0x2000;
++    // Move from range [-LEVEL_BOUNDARY_MAX, LEVEL_BOUNDARY_MAX) to [0, LEVEL_BOUNDARY_MAX * 2)
++    coord += LEVEL_BOUNDARY_MAX;
+     if (coord < 0) {
+         coord = 0;
+     }
+ 
+-    // [0, 16)
+-    index = coord / 0x400;
++    // [0, CELL_AMOUNT)
++    index = coord / CELL_SIZE;
+ 
+     // Include extra cell if close to boundary
+     //! Some wall checks are larger than the buffer, meaning wall checks can
+     //  miss walls that are near a cell border.
+-    if (coord % 0x400 < 50) {
++    if (coord % CELL_SIZE < 50) {
+         index -= 1;
+     }
+ 
+@@ -229,27 +233,27 @@ static s16 lower_cell_index(s16 coord) {
+  * time). This function determines the upper cell for a given x/z position.
+  * @param coord The coordinate to test
+  */
+-static s16 upper_cell_index(s16 coord) {
++static s16 upper_cell_index(s32 coord) {
+     s16 index;
+ 
+-    // Move from range [-0x2000, 0x2000) to [0, 0x4000)
+-    coord += 0x2000;
++    // Move from range [-LEVEL_BOUNDARY_MAX, LEVEL_BOUNDARY_MAX) to [0, LEVEL_BOUNDARY_MAX * 2)
++    coord += LEVEL_BOUNDARY_MAX;
+     if (coord < 0) {
+         coord = 0;
+     }
+ 
+-    // [0, 16)
+-    index = coord / 0x400;
++    // [0, CELL_AMOUNT)
++    index = coord / CELL_SIZE;
+ 
+     // Include extra cell if close to boundary
+     //! Some wall checks are larger than the buffer, meaning wall checks can
+     //  miss walls that are near a cell border.
+-    if (coord % 0x400 > 0x400 - 50) {
++    if (coord % CELL_SIZE > CELL_SIZE - 50) {
+         index += 1;
+     }
+ 
+-    if (index > 15) {
+-        index = 15;
++    if (index > CELL_AMOUNT_MINUS_ONE) {
++        index = CELL_AMOUNT_MINUS_ONE;
+     }
+ 
+     // Potentially < 0, but since lower index is >= 0, not exploitable
+@@ -524,8 +528,8 @@ static void load_environmental_regions(s16 **data) {
+  * Allocate some of the main pool for surfaces (2300 surf) and for surface nodes (7000 nodes).
+  */
+ void alloc_surface_pools(void) {
+-    sSurfacePoolSize = 2300;
+-    sSurfaceNodePool = main_pool_alloc(7000 * sizeof(struct SurfaceNode), MEMORY_POOL_LEFT);
++    sSurfacePoolSize = SURFACE_POOL_SIZE;
++    sSurfaceNodePool = main_pool_alloc(SURFACE_NODE_POOL_SIZE * sizeof(struct SurfaceNode), MEMORY_POOL_LEFT);
+     sSurfacePool = main_pool_alloc(sSurfacePoolSize * sizeof(struct Surface), MEMORY_POOL_LEFT);
+ 
+     gCCMEnteredSlide = 0;
+diff --git a/src/engine/surface_load.h b/src/engine/surface_load.h
+index 5e77e92..b63bcff 100644
+--- a/src/engine/surface_load.h
++++ b/src/engine/surface_load.h
+@@ -4,6 +4,10 @@
+ #include <PR/ultratypes.h>
+ 
+ #include "types.h"
++#include "engine/extended_bounds.h"
++
++
++extern u8 gSurfacePoolError;
+ 
+ struct SurfaceNode
+ {
+@@ -23,8 +27,8 @@ typedef struct SurfaceNode SpatialPartitionCell[3];
+ // Needed for bs bss reordering memes.
+ extern s32 unused8038BE90;
+ 
+-extern SpatialPartitionCell gStaticSurfacePartition[16][16];
+-extern SpatialPartitionCell gDynamicSurfacePartition[16][16];
++extern SpatialPartitionCell gStaticSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
++extern SpatialPartitionCell gDynamicSurfacePartition[CELL_AMOUNT][CELL_AMOUNT];
+ extern struct SurfaceNode *sSurfaceNodePool;
+ extern struct Surface *sSurfacePool;
+ extern s16 sSurfacePoolSize;
+diff --git a/src/game/camera.c b/src/game/camera.c
+index 60bfb86..52bc84d 100644
+--- a/src/game/camera.c
++++ b/src/game/camera.c
+@@ -874,21 +874,21 @@ void pan_ahead_of_player(struct Camera *c) {
+     vec3f_add(c->focus, pan);
+ }
+ 
+-s16 find_in_bounds_yaw_wdw_bob_thi(Vec3f pos, Vec3f origin, s16 yaw) {
+-    switch (gCurrLevelArea) {
+-        case AREA_WDW_MAIN:
+-            yaw = clamp_positions_and_find_yaw(pos, origin, 4508.f, -3739.f, 4508.f, -3739.f);
+-            break;
+-        case AREA_BOB:
+-            yaw = clamp_positions_and_find_yaw(pos, origin, 8000.f, -8000.f, 7050.f, -8000.f);
+-            break;
+-        case AREA_THI_HUGE:
+-            yaw = clamp_positions_and_find_yaw(pos, origin, 8192.f, -8192.f, 8192.f, -8192.f);
+-            break;
+-        case AREA_THI_TINY:
+-            yaw = clamp_positions_and_find_yaw(pos, origin, 2458.f, -2458.f, 2458.f, -2458.f);
+-            break;
+-    }
++s16 find_in_bounds_yaw_wdw_bob_thi(UNUSED Vec3f pos, UNUSED Vec3f origin, s16 yaw) {
++    // switch (gCurrLevelArea) {
++    //     case AREA_WDW_MAIN:
++    //         yaw = clamp_positions_and_find_yaw(pos, origin, 4508.f, -3739.f, 4508.f, -3739.f);
++    //         break;
++    //     case AREA_BOB:
++    //         yaw = clamp_positions_and_find_yaw(pos, origin, 8000.f, -8000.f, 7050.f, -8000.f);
++    //         break;
++    //     case AREA_THI_HUGE:
++    //         yaw = clamp_positions_and_find_yaw(pos, origin, 8192.f, -8192.f, 8192.f, -8192.f);
++    //         break;
++    //     case AREA_THI_TINY:
++    //         yaw = clamp_positions_and_find_yaw(pos, origin, 2458.f, -2458.f, 2458.f, -2458.f);
++    //         break;
++    // }
+     return yaw;
+ }
+ 
+diff --git a/src/game/hud.c b/src/game/hud.c
+index 8d4daa5..a190af0 100644
+--- a/src/game/hud.c
++++ b/src/game/hud.c
+@@ -13,6 +13,7 @@
+ #include "area.h"
+ #include "save_file.h"
+ #include "print.h"
++#include "engine/surface_load.h"
+ 
+ /* @file hud.c
+  * This file implements HUD rendering and power meter animations.
+@@ -475,5 +476,14 @@ void render_hud(void) {
+         if (hudDisplayFlags & HUD_DISPLAY_FLAG_TIMER) {
+             render_hud_timer();
+         }
++
++        if (gSurfacePoolError & NOT_ENOUGH_ROOM_FOR_SURFACES)
++        {
++            print_text(10, 40, "SURFACE POOL FULL");
++        }
++        if (gSurfacePoolError & NOT_ENOUGH_ROOM_FOR_NODES)
++        {
++            print_text(10, 60, "SURFACE NODE POOL FULL");
++        }
+     }
+ }
+diff --git a/src/game/main.c b/src/game/main.c
+index 9e53e50..4394e9d 100644
+--- a/src/game/main.c
++++ b/src/game/main.c
+@@ -139,7 +139,7 @@ void setup_mesg_queues(void) {
+ 
+ void alloc_pool(void) {
+     void *start = (void *) SEG_POOL_START;
+-    void *end = (void *) SEG_POOL_END;
++    void *end = (void *) (SEG_POOL_START + POOL_SIZE);
+ 
+     main_pool_init(start, end);
+     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
+diff --git a/src/game/memory.c b/src/game/memory.c
+index 5a17ae9..fe99997 100644
+--- a/src/game/memory.c
++++ b/src/game/memory.c
+@@ -357,8 +357,8 @@ void *load_segment_decompress_heap(u32 segment, u8 *srcStart, u8 *srcEnd) {
+ }
+ 
+ void load_engine_code_segment(void) {
+-    void *startAddr = (void *) SEG_ENGINE;
+-    u32 totalSize = SEG_FRAMEBUFFERS - SEG_ENGINE;
++    void *startAddr = (void *) _engineSegmentStart;
++    u32 totalSize = _engineSegmentEnd - _engineSegmentStart;
+     UNUSED u32 alignedSize = ALIGN16(_engineSegmentRomEnd - _engineSegmentRomStart);
+ 
+     bzero(startAddr, totalSize);
+diff --git a/src/game/object_helpers.c b/src/game/object_helpers.c
+index 2cc0224..0a70f74 100644
+--- a/src/game/object_helpers.c
++++ b/src/game/object_helpers.c
+@@ -1851,12 +1851,10 @@ static s32 cur_obj_within_12k_bounds(void) {
+ }
+ 
+ void cur_obj_move_using_vel_and_gravity(void) {
+-    if (cur_obj_within_12k_bounds()) {
+         o->oPosX += o->oVelX;
+         o->oPosZ += o->oVelZ;
+         o->oVelY += o->oGravity; //! No terminal velocity
+         o->oPosY += o->oVelY;
+-    }
+ }
+ 
+ void cur_obj_move_using_fvel_and_gravity(void) {

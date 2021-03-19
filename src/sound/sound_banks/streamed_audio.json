@@ -1,0 +1,37 @@
+{
+    "date": "1996-03-19",
+    "sample_bank": "streamed_audio",
+    "envelopes": {
+        "envelope": [
+            [
+                6,
+                32700
+            ],
+            [
+                6,
+                32700
+            ],
+            [
+                32700,
+                29430
+            ],
+            "hang"
+        ]
+    },
+    "instruments": {
+        "inst0": {
+            "release_rate": 10,
+            "envelope": "envelope",
+            "sound": "2F_custom_star_select"
+        },
+        "inst1": {
+            "release_rate": 10,
+            "envelope": "envelope",
+            "sound": "30_custom_hell_ambiance"
+        }
+    },
+    "instrument_list": [
+        "inst0",
+        "inst1"
+    ]
+}

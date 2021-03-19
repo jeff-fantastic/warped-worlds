@@ -1,0 +1,12 @@
+extern const GeoLayout bookstack_geo[];
+extern Lights1 bookstack_sm64_material_lights;
+extern Lights1 bookstack_sm64_material_001_lights;
+extern u8 bookstack_BookInside_i8[];
+extern Vtx bookstack_000_displaylist_mesh_vtx_0[159];
+extern Gfx bookstack_000_displaylist_mesh_tri_0[];
+extern Vtx bookstack_000_displaylist_mesh_vtx_1[36];
+extern Gfx bookstack_000_displaylist_mesh_tri_1[];
+extern Gfx mat_bookstack_sm64_material[];
+extern Gfx mat_bookstack_sm64_material_001[];
+extern Gfx bookstack_000_displaylist_mesh[];
+extern Gfx bookstack_material_revert_render_settings[];

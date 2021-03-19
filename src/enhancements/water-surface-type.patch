@@ -1,0 +1,1073 @@
+diff --git a/Makefile b/Makefile
+index cdb4b34..11468a5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -410,6 +410,7 @@ $(BUILD_DIR)/include/text_strings.h: $(BUILD_DIR)/include/text_menu_strings.h
+ $(BUILD_DIR)/src/menu/file_select.o: $(BUILD_DIR)/include/text_strings.h
+ $(BUILD_DIR)/src/menu/star_select.o: $(BUILD_DIR)/include/text_strings.h
+ $(BUILD_DIR)/src/game/ingame_menu.o: $(BUILD_DIR)/include/text_strings.h
++$(BUILD_DIR)/src/game/mem_error_screen.o: $(BUILD_DIR)/include/text_strings.h
+ 
+ ################################################################
+ # TEXTURE GENERATION                                           #
+diff --git a/include/segments.h b/include/segments.h
+index 8963446..a00a532 100644
+--- a/include/segments.h
++++ b/include/segments.h
+@@ -1,6 +1,9 @@
+ #ifndef SEGMENTS_H
+ #define SEGMENTS_H
+ 
++/* Use expansion pack RAM */
++#define USE_EXT_RAM 1
++
+ /*
+  * Memory addresses for segments. Ideally, this header file would not be
+  * needed, and the addresses would be defined in sm64.ld and linker-inserted
+@@ -46,8 +49,8 @@
+ #define SEG_BUFFERS      0x8005C000 // 0x0085000 in size
+ #define SEG_MAIN         0x800E1000 // 0x1328000 in size
+ #define SEG_ENGINE       0x80213800 // 0x0017000 in size
+-#define SEG_FRAMEBUFFERS 0x8022A800 // 0x0070800 in size
+-#define SEG_POOL_START   0x8029B000 // 0x0165000 in size
++#define SEG_FRAMEBUFFERS (0x8022A800 + 0x5c00) // 0x0070800 in size
++#define SEG_POOL_START   (0x8029B000 + 0x5c00) // 0x0165000 in size
+ #define SEG_POOL_END     0x80800000
+ #define SEG_POOL_END_4MB 0x80400000 // For the error message screen enhancement.
+ #define SEG_GODDARD      SEG_POOL_START + 0x113000
+diff --git a/include/surface_terrains.h b/include/surface_terrains.h
+index 669a0ac..29ccb03 100644
+--- a/include/surface_terrains.h
++++ b/include/surface_terrains.h
+@@ -4,6 +4,8 @@
+ // Surface Types
+ #define SURFACE_DEFAULT                      0x0000 // Environment default
+ #define SURFACE_BURNING                      0x0001 // Lava / Frostbite (in SL), but is used mostly for Lava
++#define SURFACE_NEW_WATER                    0x0002 // Custom water surface
++#define SURFACE_NEW_WATER_BOTTOM             0x0003 // Custom water surface bottom marker
+ #define SURFACE_0004                         0x0004 // Unused, has no function and has parameters
+ #define SURFACE_HANGABLE                     0x0005 // Ceiling that Mario can climb on
+ #define SURFACE_SLOW                         0x0009 // Slow down Mario, unused
+diff --git a/include/text_strings.h.in b/include/text_strings.h.in
+index 749179b..2f6f7a3 100644
+--- a/include/text_strings.h.in
++++ b/include/text_strings.h.in
+@@ -25,6 +25,11 @@
+ #define TEXT_PAUSE _("PAUSE") // Pause text, Castle Courses
+ #define TEXT_HUD_CONGRATULATIONS _("CONGRATULATIONS") // Course Complete Text, Bowser Courses
+ 
++// Memory Expansion Error Screen
++#define TEXT_CONSOLE_8MB _("If you're using an N64 console, then you will need to buy an\nExpansion Pak to play this ROM hack.")
++#define TEXT_PJ64 _("If you are using PJ64 1.6, go to:\nOptions > Settings > Rom Settings Tab > Memory Size\nthen select 8 MB from the drop-down box.")
++#define TEXT_PJ64_2 _("If you are using PJ64 2.X, go to:\nOptions > Settings > Config: > Memory Size, select 8 MB")
++
+ #if defined(VERSION_JP) || defined(VERSION_SH)
+ 
+ /**
+diff --git a/levels/entry.c b/levels/entry.c
+index 015eeb6..cc010ca 100644
+--- a/levels/entry.c
++++ b/levels/entry.c
+@@ -15,3 +15,12 @@ const LevelScript level_script_entry[] = {
+     EXECUTE(/*seg*/ 0x14, /*script*/ _introSegmentRomStart, /*scriptEnd*/ _introSegmentRomEnd, /*entry*/ level_intro_entry_1),
+     JUMP(/*target*/ level_script_entry),
+ };
++
++const LevelScript level_script_entry_error_screen[] = {
++    INIT_LEVEL(),
++    SLEEP(/*frames*/ 2),
++    BLACKOUT(/*active*/ FALSE),
++    SET_REG(/*value*/ 0),
++    EXECUTE(/*seg*/ 0x14, /*script*/ _introSegmentRomStart, /*scriptEnd*/ _introSegmentRomEnd, /*entry*/ level_intro_entry_error_screen),
++    JUMP(/*target*/ level_script_entry_error_screen),
++};
+diff --git a/levels/intro/geo.c b/levels/intro/geo.c
+index 8ac7002..72766f3 100644
+--- a/levels/intro/geo.c
++++ b/levels/intro/geo.c
+@@ -15,6 +15,24 @@
+ 
+ #include "levels/intro/header.h"
+ 
++const GeoLayout intro_geo_error_screen[] = {
++    GEO_NODE_SCREEN_AREA(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2),
++    GEO_OPEN_NODE(),
++        GEO_ZBUFFER(0),
++        GEO_OPEN_NODE(),
++            GEO_NODE_ORTHO(100),
++            GEO_OPEN_NODE(),
++                GEO_BACKGROUND_COLOR(0x0001),
++            GEO_CLOSE_NODE(),
++        GEO_CLOSE_NODE(),
++        GEO_ZBUFFER(0),
++        GEO_OPEN_NODE(),
++            GEO_ASM(0, geo18_display_error_message),
++        GEO_CLOSE_NODE(),
++    GEO_CLOSE_NODE(),
++    GEO_END(),
++};
++
+ // 0x0E0002D0
+ const GeoLayout intro_geo_0002D0[] = {
+    GEO_NODE_SCREEN_AREA(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_WIDTH/2, SCREEN_HEIGHT/2),
+diff --git a/levels/intro/header.h b/levels/intro/header.h
+index e0f6292..8f77fb2 100644
+--- a/levels/intro/header.h
++++ b/levels/intro/header.h
+@@ -26,4 +26,8 @@ extern const LevelScript script_intro_L3[];
+ extern const LevelScript script_intro_L4[];
+ extern const LevelScript script_intro_L5[];
+ 
++extern const GeoLayout intro_geo_error_screen[];
++extern const LevelScript level_intro_entry_error_screen[];
++extern Gfx *geo18_display_error_message(u32 run, UNUSED struct GraphNode *sp44, UNUSED u32 sp48);
++
+ #endif
+diff --git a/levels/intro/script.c b/levels/intro/script.c
+index 4975dbb..5ee6c68 100644
+--- a/levels/intro/script.c
++++ b/levels/intro/script.c
+@@ -18,6 +18,21 @@
+ #include "make_const_nonconst.h"
+ #include "levels/intro/header.h"
+ 
++const LevelScript level_intro_entry_error_screen[] = {
++    INIT_LEVEL(),
++    FIXED_LOAD(/*loadAddr*/ _goddardSegmentStart, /*romStart*/ _goddardSegmentRomStart, /*romEnd*/ _goddardSegmentRomEnd),
++    LOAD_MIO0(/*seg*/ 0x07, _intro_segment_7SegmentRomStart, _intro_segment_7SegmentRomEnd),
++    ALLOC_LEVEL_POOL(),
++
++    AREA(/*index*/ 1, intro_geo_error_screen),
++	END_AREA(),
++
++    FREE_LEVEL_POOL(),
++    LOAD_AREA(/*area*/ 1),
++    SLEEP(/*frames*/ 32767),
++    EXIT_AND_EXECUTE(/*seg*/ 0x14, _introSegmentRomStart, _introSegmentRomEnd, level_intro_entry_error_screen),
++};
++
+ const LevelScript level_intro_entry_1[] = {
+     INIT_LEVEL(),
+     FIXED_LOAD(/*loadAddr*/ _goddardSegmentStart, /*romStart*/ _goddardSegmentRomStart, /*romEnd*/ _goddardSegmentRomEnd),
+diff --git a/src/engine/level_script.h b/src/engine/level_script.h
+index d41a91c..7d04723 100644
+--- a/src/engine/level_script.h
++++ b/src/engine/level_script.h
+@@ -6,6 +6,7 @@
+ struct LevelCommand;
+ 
+ extern u8 level_script_entry[];
++extern u8 level_script_entry_error_screen[];
+ 
+ struct LevelCommand *level_script_execute(struct LevelCommand *cmd);
+ 
+diff --git a/src/engine/surface_collision.c b/src/engine/surface_collision.c
+index 9aff62f..6e8248f 100644
+--- a/src/engine/surface_collision.c
++++ b/src/engine/surface_collision.c
+@@ -1,4 +1,4 @@
+-#include <PR/ultratypes.h>
++#include <ultra64.h>
+ 
+ #include "sm64.h"
+ #include "game/debug.h"
+@@ -9,7 +9,7 @@
+ #include "surface_load.h"
+ 
+ /**************************************************
+- *                      WALLS                     *
++ *                      WALLS                      *
+  **************************************************/
+ 
+ /**
+@@ -110,12 +110,12 @@ static s32 find_wall_collisions_from_list(struct SurfaceNode *surfaceNode,
+ 
+         // Determine if checking for the camera or not.
+         if (gCheckingSurfaceCollisionsForCamera) {
+-            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION) {
++            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION || surf->type == SURFACE_NEW_WATER || surf->type == SURFACE_NEW_WATER_BOTTOM) {
+                 continue;
+             }
+         } else {
+             // Ignore camera only surfaces.
+-            if (surf->type == SURFACE_CAMERA_BOUNDARY) {
++            if (surf->type == SURFACE_CAMERA_BOUNDARY || surf->type == SURFACE_NEW_WATER || surf->type == SURFACE_NEW_WATER_BOTTOM) {
+                 continue;
+             }
+ 
+@@ -199,8 +199,8 @@ s32 find_wall_collisions(struct WallCollisionData *colData) {
+ 
+     // World (level) consists of a 16x16 grid. Find where the collision is on
+     // the grid (round toward -inf)
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
+ 
+     // Check for surfaces belonging to objects.
+     node = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_WALLS].next;
+@@ -217,13 +217,14 @@ s32 find_wall_collisions(struct WallCollisionData *colData) {
+ }
+ 
+ /**************************************************
+- *                     CEILINGS                   *
++ *                     CEILINGS                    *
+  **************************************************/
+ 
+ /**
+  * Iterate through the list of ceilings and find the first ceiling over a given point.
+  */
+-static struct Surface *find_ceil_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
++static struct Surface *find_ceil_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z,
++                                           f32 *pheight) {
+     register struct Surface *surf;
+     register s32 x1, z1, x2, z2, x3, z3;
+     struct Surface *ceil = NULL;
+@@ -257,12 +258,12 @@ static struct Surface *find_ceil_from_list(struct SurfaceNode *surfaceNode, s32
+ 
+         // Determine if checking for the camera or not.
+         if (gCheckingSurfaceCollisionsForCamera != 0) {
+-            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION) {
++            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION || surf->type == SURFACE_NEW_WATER || surf->type == SURFACE_NEW_WATER_BOTTOM) {
+                 continue;
+             }
+         }
+         // Ignore camera only surfaces.
+-        else if (surf->type == SURFACE_CAMERA_BOUNDARY) {
++        else if (surf->type == SURFACE_CAMERA_BOUNDARY || surf->type == SURFACE_NEW_WATER || surf->type == SURFACE_NEW_WATER_BOTTOM) {
+             continue;
+         }
+ 
+@@ -285,6 +286,7 @@ static struct Surface *find_ceil_from_list(struct SurfaceNode *surfaceNode, s32
+             //! (Exposed Ceilings) Because any point above a ceiling counts
+             //  as interacting with a ceiling, ceilings far below can cause
+             // "invisible walls" that are really just exposed ceilings.
++            // if (y - (height - -78.0f) > 0.0f) {
+             if (y - (height - -78.0f) > 0.0f) {
+                 continue;
+             }
+@@ -307,8 +309,8 @@ f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
+     s16 cellZ, cellX;
+     struct Surface *ceil, *dynamicCeil;
+     struct SurfaceNode *surfaceList;
+-    f32 height = 20000.0f;
+-    f32 dynamicHeight = 20000.0f;
++    f32 height = CELL_HEIGHT_LIMIT;
++    f32 dynamicHeight = CELL_HEIGHT_LIMIT;
+     s16 x, y, z;
+ 
+     //! (Parallel Universes) Because position is casted to an s16, reaching higher
+@@ -327,8 +329,8 @@ f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
+     }
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
+ 
+     // Check for surfaces belonging to objects.
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_CEILS].next;
+@@ -352,7 +354,7 @@ f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
+ }
+ 
+ /**************************************************
+- *                     FLOORS                     *
++ *                     FLOORS                      *
+  **************************************************/
+ 
+ /**
+@@ -396,7 +398,8 @@ f32 find_floor_height_and_data(f32 xPos, f32 yPos, f32 zPos, struct FloorGeometr
+ /**
+  * Iterate through the list of floors and find the first floor under a given point.
+  */
+-static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
++static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z,
++                                            f32 *pheight) {
+     register struct Surface *surf;
+     register s32 x1, z1, x2, z2, x3, z3;
+     f32 nx, ny, nz;
+@@ -432,7 +435,7 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
+ 
+         // Determine if we are checking for the camera or not.
+         if (gCheckingSurfaceCollisionsForCamera != 0) {
+-            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION) {
++            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION || surf->type == SURFACE_NEW_WATER || surf->type == SURFACE_NEW_WATER_BOTTOM) {
+                 continue;
+             }
+         }
+@@ -468,6 +471,77 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
+     return floor;
+ }
+ 
++static s16 check_within_triangle_bounds(s32 x, s32 z, struct Surface *surf) {
++    register s32 x1, z1, x2, z2, x3, z3;
++    x1 = surf->vertex1[0];
++    z1 = surf->vertex1[2];
++    x2 = surf->vertex2[0];
++    z2 = surf->vertex2[2];
++
++    if ((z1 - z) * (x2 - x1) - (x1 - x) * (z2 - z1) < 0) return FALSE;
++
++    x3 = surf->vertex3[0];
++    z3 = surf->vertex3[2];
++
++    if ((z2 - z) * (x3 - x2) - (x2 - x) * (z3 - z2) < 0) return FALSE;
++    if ((z3 - z) * (x1 - x3) - (x3 - x) * (z1 - z3) < 0) return FALSE;
++
++    return TRUE;
++}
++
++// Find the height of the floor at a given location
++static f32 get_floor_height_at_location(s32 x, s32 z, struct Surface *surf) {
++    return -(x * surf->normal.x + surf->normal.z * z + surf->originOffset) / surf->normal.y;
++}
++
++/**
++ * Iterate through the list of water floors and find the first water floor under a given point.
++ */
++struct Surface *find_water_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z,
++                                            f32 *pheight) {
++    register struct Surface *surf;
++    struct Surface *floor = NULL;
++    struct SurfaceNode *topSurfaceNode = surfaceNode;
++    struct SurfaceNode *bottomSurfaceNode = surfaceNode;
++    f32 height = FLOOR_LOWER_LIMIT;
++    f32 bottomHeight = FLOOR_LOWER_LIMIT;
++
++    // Iterate through the list of water floors until there are no more water floors.
++    while (bottomSurfaceNode != NULL) {
++        f32 curBottomHeight = FLOOR_LOWER_LIMIT;
++        surf = bottomSurfaceNode->surface;
++        bottomSurfaceNode = bottomSurfaceNode->next;
++
++        if (surf->type != SURFACE_NEW_WATER_BOTTOM || !check_within_triangle_bounds(x, z, surf)) continue;
++
++        curBottomHeight = get_floor_height_at_location(x, z, surf);
++
++        if (curBottomHeight < y - 78.0f) continue;
++        if (curBottomHeight >= y - 78.0f) bottomHeight = curBottomHeight;
++    }
++
++    // Iterate through the list of water tops until there are no more water tops.
++    while (topSurfaceNode != NULL) {
++        f32 curHeight = FLOOR_LOWER_LIMIT;
++        surf = topSurfaceNode->surface;
++        topSurfaceNode = topSurfaceNode->next;
++
++        if (surf->type == SURFACE_NEW_WATER_BOTTOM || !check_within_triangle_bounds(x, z, surf)) continue;
++
++        curHeight = get_floor_height_at_location(x, z, surf);
++
++        if (bottomHeight != FLOOR_LOWER_LIMIT && curHeight > bottomHeight) continue;
++
++        if (curHeight > height) {
++            height = curHeight;
++            *pheight = curHeight;
++            floor = surf;
++        }
++    }
++
++    return floor;
++}
++
+ /**
+  * Find the height of the highest floor below a point.
+  */
+@@ -480,13 +554,13 @@ f32 find_floor_height(f32 x, f32 y, f32 z) {
+ }
+ 
+ /**
+- * Find the highest dynamic floor under a given position. Perhaps originally static
++ * Find the highest dynamic floor under a given position. Perhaps originally static and
+  * and dynamic floors were checked separately.
+  */
+ f32 unused_find_dynamic_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+     struct SurfaceNode *surfaceList;
+     struct Surface *floor;
+-    f32 floorHeight = -11000.0f;
++    f32 floorHeight = FLOOR_LOWER_LIMIT;
+ 
+     // Would normally cause PUs, but dynamic floors unload at that range.
+     s16 x = (s16) xPos;
+@@ -494,8 +568,8 @@ f32 unused_find_dynamic_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfl
+     s16 z = (s16) zPos;
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    s16 cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
+-    s16 cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0x0F;
++    s16 cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++    s16 cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
+ 
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_FLOORS].next;
+     floor = find_floor_from_list(surfaceList, x, y, z, &floorHeight);
+@@ -514,8 +588,8 @@ f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+     struct Surface *floor, *dynamicFloor;
+     struct SurfaceNode *surfaceList;
+ 
+-    f32 height = -11000.0f;
+-    f32 dynamicHeight = -11000.0f;
++    f32 height = FLOOR_LOWER_LIMIT;
++    f32 dynamicHeight = FLOOR_LOWER_LIMIT;
+ 
+     //! (Parallel Universes) Because position is casted to an s16, reaching higher
+     // float locations  can return floors despite them not existing there.
+@@ -534,8 +608,8 @@ f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+     }
+ 
+     // Each level is split into cells to limit load, find the appropriate cell.
+-    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
+-    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & 0xF;
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
+ 
+     // Check for surfaces belonging to objects.
+     surfaceList = gDynamicSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_FLOORS].next;
+@@ -579,10 +653,93 @@ f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+     return height;
+ }
+ 
++/**
++ * Find the highest water floor under a given position and return the height.
++ */
++f32 find_water_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
++    s16 cellZ, cellX;
++
++    struct Surface *floor = NULL;
++    struct SurfaceNode *surfaceList;
++
++    f32 height = FLOOR_LOWER_LIMIT;
++
++    s16 x = (s16) xPos;
++    s16 y = (s16) yPos;
++    s16 z = (s16) zPos;
++
++    if (x <= -LEVEL_BOUNDARY_MAX || x >= LEVEL_BOUNDARY_MAX) {
++        return height;
++    }
++    if (z <= -LEVEL_BOUNDARY_MAX || z >= LEVEL_BOUNDARY_MAX) {
++        return height;
++    }
++
++    // Each level is split into cells to limit load, find the appropriate cell.
++    cellX = ((x + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++    cellZ = ((z + LEVEL_BOUNDARY_MAX) / CELL_SIZE) & (NUM_CELLS - 1);
++
++    // Check for surfaces that are a part of level geometry.
++    surfaceList = gStaticSurfacePartition[cellZ][cellX][SPATIAL_PARTITION_WATER].next;
++    floor = find_water_floor_from_list(surfaceList, x, y, z, &height);
++
++    if (floor == NULL) {
++        height = FLOOR_LOWER_LIMIT;
++    } else {
++        *pfloor = floor;
++    }
++
++    return height;
++}
++
+ /**************************************************
+- *               ENVIRONMENTAL BOXES              *
++ *               ENVIRONMENTAL BOXES               *
+  **************************************************/
+ 
++/**
++ * Finds the height of water at a given location.
++ */
++f32 find_water_level_and_floor(f32 x, f32 z, struct Surface **pfloor) {
++    s32 i;
++    s32 numRegions;
++    s16 val;
++    f32 loX, hiX, loZ, hiZ;
++    f32 waterLevel = FLOOR_LOWER_LIMIT;
++    s16 *p = gEnvironmentRegions;
++    struct Surface *floor = NULL;
++
++    if (gCheckingSurfaceCollisionsForCamera) {
++        waterLevel = find_water_floor(x, gLakituState.pos[1], z, &floor);
++    } else {
++        waterLevel = find_water_floor(x, gMarioState->pos[1], z, &floor);
++    }
++
++    if (p != NULL && waterLevel == FLOOR_LOWER_LIMIT) {
++        numRegions = *p++;
++
++        for (i = 0; i < numRegions; i++) {
++            val = *p++;
++            loX = *p++;
++            loZ = *p++;
++            hiX = *p++;
++            hiZ = *p++;
++
++            // If the location is within a water box and it is a water box.
++            // Water is less than 50 val only, while above is gas and such.
++            if (loX < x && x < hiX && loZ < z && z < hiZ && val < 50) {
++                // Set the water height. Since this breaks, only return the first height.
++                waterLevel = *p;
++                break;
++            }
++            p++;
++        }
++    } else {
++        *pfloor = floor;
++    }
++
++    return waterLevel;
++}
++
+ /**
+  * Finds the height of water at a given location.
+  */
+@@ -591,10 +748,17 @@ f32 find_water_level(f32 x, f32 z) {
+     s32 numRegions;
+     s16 val;
+     f32 loX, hiX, loZ, hiZ;
+-    f32 waterLevel = -11000.0f;
++    f32 waterLevel = FLOOR_LOWER_LIMIT;
+     s16 *p = gEnvironmentRegions;
++    struct Surface *floor;
+ 
+-    if (p != NULL) {
++    if (gCheckingSurfaceCollisionsForCamera) {
++        waterLevel = find_water_floor(x, gLakituState.pos[1], z, &floor);
++    } else {
++        waterLevel = find_water_floor(x, gMarioState->pos[1], z, &floor);
++    }
++
++    if (p != NULL && waterLevel == FLOOR_LOWER_LIMIT) {
+         numRegions = *p++;
+ 
+         for (i = 0; i < numRegions; i++) {
+@@ -627,7 +791,7 @@ f32 find_poison_gas_level(f32 x, f32 z) {
+     UNUSED s32 unused;
+     s16 val;
+     f32 loX, hiX, loZ, hiZ;
+-    f32 gasLevel = -11000.0f;
++    f32 gasLevel = FLOOR_LOWER_LIMIT;
+     s16 *p = gEnvironmentRegions;
+ 
+     if (p != NULL) {
+@@ -659,7 +823,7 @@ f32 find_poison_gas_level(f32 x, f32 z) {
+ }
+ 
+ /**************************************************
+- *                      DEBUG                     *
++ *                      DEBUG                      *
+  **************************************************/
+ 
+ /**
+@@ -689,25 +853,25 @@ void debug_surface_list_info(f32 xPos, f32 zPos) {
+     s32 cellX = (xPos + LEVEL_BOUNDARY_MAX) / CELL_SIZE;
+     s32 cellZ = (zPos + LEVEL_BOUNDARY_MAX) / CELL_SIZE;
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_FLOORS].next;
++    list = gStaticSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_FLOORS].next;
+     numFloors += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_FLOORS].next;
++    list = gDynamicSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_FLOORS].next;
+     numFloors += surface_list_length(list);
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_WALLS].next;
++    list = gStaticSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_WALLS].next;
+     numWalls += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_WALLS].next;
++    list = gDynamicSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_WALLS].next;
+     numWalls += surface_list_length(list);
+ 
+-    list = gStaticSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_CEILS].next;
++    list = gStaticSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_CEILS].next;
+     numCeils += surface_list_length(list);
+ 
+-    list = gDynamicSurfacePartition[cellZ & 0x0F][cellX & 0x0F][SPATIAL_PARTITION_CEILS].next;
++    list = gDynamicSurfacePartition[cellZ & (NUM_CELLS - 1)][cellX & (NUM_CELLS - 1)][SPATIAL_PARTITION_CEILS].next;
+     numCeils += surface_list_length(list);
+ 
+-    print_debug_top_down_mapinfo("area   %x", cellZ * 16 + cellX);
++    print_debug_top_down_mapinfo("area   %x", cellZ * NUM_CELLS + cellX);
+ 
+     // Names represent ground, walls, and roofs as found in SMS.
+     print_debug_top_down_mapinfo("dg %d", numFloors);
+@@ -736,12 +900,10 @@ void debug_surface_list_info(f32 xPos, f32 zPos) {
+  * An unused function that finds and interacts with any type of surface.
+  * Perhaps an original implementation of surfaces before they were more specialized.
+  */
+-s32 unused_resolve_floor_or_ceil_collisions(s32 checkCeil, f32 *px, f32 *py, f32 *pz, f32 radius,
+-                                            struct Surface **psurface, f32 *surfaceHeight) {
++static s32 unused_resolve_floor_or_ceil_collisions(s32 checkCeil, f32 *px, f32 *py, f32 *pz, f32 radius,
++                                                   struct Surface **psurface, f32 *surfaceHeight) {
+     f32 nx, ny, nz, oo;
+-    f32 x = *px;
+-    f32 y = *py;
+-    f32 z = *pz;
++    f32 x = *px, y = *py, z = *pz;
+     f32 offset, distance;
+ 
+     *psurface = NULL;
+diff --git a/src/engine/surface_collision.h b/src/engine/surface_collision.h
+index 71898d3..ed4f014 100644
+--- a/src/engine/surface_collision.h
++++ b/src/engine/surface_collision.h
+@@ -7,6 +7,10 @@
+ 
+ #define LEVEL_BOUNDARY_MAX 0x2000
+ #define CELL_SIZE          0x400
++#define NUM_CELLS          16 // Change this to 32 for x2 extended bounds
++
++#define CELL_HEIGHT_LIMIT   20000.f
++#define FLOOR_LOWER_LIMIT  -11000.f
+ 
+ struct WallCollisionData
+ {
+@@ -33,6 +37,7 @@ f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil);
+ f32 find_floor_height_and_data(f32 xPos, f32 yPos, f32 zPos, struct FloorGeometry **floorGeo);
+ f32 find_floor_height(f32 x, f32 y, f32 z);
+ f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor);
++f32 find_water_level_and_floor(f32 x, f32 z, struct Surface **pfloor);
+ f32 find_water_level(f32 x, f32 z);
+ f32 find_poison_gas_level(f32 x, f32 z);
+ void debug_surface_list_info(f32 xPos, f32 zPos);
+diff --git a/src/engine/surface_load.c b/src/engine/surface_load.c
+index 6936d8a..4c144b6 100644
+--- a/src/engine/surface_load.c
++++ b/src/engine/surface_load.c
+@@ -21,8 +21,8 @@ s32 unused8038BE90;
+  * Partitions for course and object surfaces. The arrays represent
+  * the 16x16 cells that each level is split into.
+  */
+-SpatialPartitionCell gStaticSurfacePartition[16][16];
+-SpatialPartitionCell gDynamicSurfacePartition[16][16];
++SpatialPartitionCell gStaticSurfacePartition[NUM_CELLS][NUM_CELLS];
++SpatialPartitionCell gDynamicSurfacePartition[NUM_CELLS][NUM_CELLS];
+ 
+ /**
+  * Pools of data to contain either surface nodes or surfaces.
+@@ -83,12 +83,13 @@ static struct Surface *alloc_surface(void) {
+  * Iterates through the entire partition, clearing the surfaces.
+  */
+ static void clear_spatial_partition(SpatialPartitionCell *cells) {
+-    register s32 i = 16 * 16;
++    register s32 i = NUM_CELLS * NUM_CELLS;
+ 
+     while (i--) {
+         (*cells)[SPATIAL_PARTITION_FLOORS].next = NULL;
+         (*cells)[SPATIAL_PARTITION_CEILS].next = NULL;
+         (*cells)[SPATIAL_PARTITION_WALLS].next = NULL;
++        (*cells)[SPATIAL_PARTITION_WATER].next = NULL;
+ 
+         cells++;
+     }
+@@ -115,9 +116,10 @@ static void add_surface_to_cell(s16 dynamic, s16 cellX, s16 cellZ, struct Surfac
+     s16 priority;
+     s16 sortDir;
+     s16 listIndex;
++    s16 isWater = surface->type == SURFACE_NEW_WATER || surface->type == SURFACE_NEW_WATER_BOTTOM;
+ 
+     if (surface->normal.y > 0.01) {
+-        listIndex = SPATIAL_PARTITION_FLOORS;
++        listIndex = isWater ? SPATIAL_PARTITION_WATER : SPATIAL_PARTITION_FLOORS;
+         sortDir = 1; // highest to lowest, then insertion order
+     } else if (surface->normal.y < -0.01) {
+         listIndex = SPATIAL_PARTITION_CEILS;
+@@ -233,23 +235,23 @@ static s16 upper_cell_index(s16 coord) {
+     s16 index;
+ 
+     // Move from range [-0x2000, 0x2000) to [0, 0x4000)
+-    coord += 0x2000;
++    coord += LEVEL_BOUNDARY_MAX;
+     if (coord < 0) {
+         coord = 0;
+     }
+ 
+     // [0, 16)
+-    index = coord / 0x400;
++    index = coord / CELL_SIZE;
+ 
+     // Include extra cell if close to boundary
+     //! Some wall checks are larger than the buffer, meaning wall checks can
+     //  miss walls that are near a cell border.
+-    if (coord % 0x400 > 0x400 - 50) {
++    if (coord % CELL_SIZE > CELL_SIZE - 50) {
+         index += 1;
+     }
+ 
+-    if (index > 15) {
+-        index = 15;
++    if (index > NUM_CELLS - 1) {
++        index = NUM_CELLS - 1;
+     }
+ 
+     // Potentially < 0, but since lower index is >= 0, not exploitable
+diff --git a/src/engine/surface_load.h b/src/engine/surface_load.h
+index 5e77e92..d1f92bc 100644
+--- a/src/engine/surface_load.h
++++ b/src/engine/surface_load.h
+@@ -4,6 +4,7 @@
+ #include <PR/ultratypes.h>
+ 
+ #include "types.h"
++#include "./surface_collision.h"
+ 
+ struct SurfaceNode
+ {
+@@ -15,16 +16,17 @@ enum
+ {
+     SPATIAL_PARTITION_FLOORS,
+     SPATIAL_PARTITION_CEILS,
+-    SPATIAL_PARTITION_WALLS
++    SPATIAL_PARTITION_WALLS,
++    SPATIAL_PARTITION_WATER
+ };
+ 
+-typedef struct SurfaceNode SpatialPartitionCell[3];
++typedef struct SurfaceNode SpatialPartitionCell[4];
+ 
+ // Needed for bs bss reordering memes.
+ extern s32 unused8038BE90;
+ 
+-extern SpatialPartitionCell gStaticSurfacePartition[16][16];
+-extern SpatialPartitionCell gDynamicSurfacePartition[16][16];
++extern SpatialPartitionCell gStaticSurfacePartition[NUM_CELLS][NUM_CELLS];
++extern SpatialPartitionCell gDynamicSurfacePartition[NUM_CELLS][NUM_CELLS];
+ extern struct SurfaceNode *sSurfaceNodePool;
+ extern struct Surface *sSurfacePool;
+ extern s16 sSurfacePoolSize;
+diff --git a/src/game/main.c b/src/game/main.c
+index 9e53e50..d639e54 100644
+--- a/src/game/main.c
++++ b/src/game/main.c
+@@ -11,6 +11,7 @@
+ #include "segments.h"
+ #include "main.h"
+ #include "thread6.h"
++#include "mem_error_screen.h"
+ 
+ // Message IDs
+ #define MESG_SP_COMPLETE 100
+@@ -141,6 +142,10 @@ void alloc_pool(void) {
+     void *start = (void *) SEG_POOL_START;
+     void *end = (void *) SEG_POOL_END;
+ 
++    // Detect memory size
++    if (does_pool_end_lie_out_of_bounds(end))
++        end = (void *)SEG_POOL_END_4MB;
++
+     main_pool_init(start, end);
+     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
+ }
+@@ -346,7 +351,10 @@ void thread3_main(UNUSED void *arg) {
+     create_thread(&gSoundThread, 4, thread4_sound, NULL, gThread4Stack + 0x2000, 20);
+     osStartThread(&gSoundThread);
+ 
+-    create_thread(&gGameLoopThread, 5, thread5_game_loop, NULL, gThread5Stack + 0x2000, 10);
++    if (!gNotEnoughMemory)
++        create_thread(&gGameLoopThread, 5, thread5_game_loop, NULL, gThread5Stack + 0x2000, 10);
++    else
++        create_thread(&gGameLoopThread, 5, thread5_mem_error_message_loop, NULL, gThread5Stack + 0x2000, 10);
+     osStartThread(&gGameLoopThread);
+ 
+     while (1) {
+diff --git a/src/game/mario.c b/src/game/mario.c
+index 5b103fa..64ece12 100644
+--- a/src/game/mario.c
++++ b/src/game/mario.c
+@@ -1172,6 +1172,24 @@ s32 transition_submerged_to_walking(struct MarioState *m) {
+     }
+ }
+ 
++/**
++ * Transitions Mario from a submerged action to an airborne action.
++ * You may want to change these actions to fit your hack
++ */
++s32 transition_submerged_to_airborne(struct MarioState *m) {
++    set_camera_mode(m->area->camera, m->area->camera->defMode, 1);
++
++    vec3s_set(m->angleVel, 0, 0, 0);
++
++    if (m->heldObj == NULL) {
++        if (m->input & INPUT_A_DOWN) return set_mario_action(m, ACT_DIVE, 0);
++        else return set_mario_action(m, ACT_FREEFALL, 0);
++    } else {
++        if (m->input & INPUT_A_DOWN) return set_mario_action(m, ACT_HOLD_JUMP, 0);
++        else return set_mario_action(m, ACT_HOLD_FREEFALL, 0);
++    }
++}
++
+ /**
+  * This is the transition function typically for entering a submerged action for a
+  * non-submerged action. This also applies the water surface camera preset.
+@@ -1180,7 +1198,8 @@ s32 set_water_plunge_action(struct MarioState *m) {
+     m->forwardVel = m->forwardVel / 4.0f;
+     m->vel[1] = m->vel[1] / 2.0f;
+ 
+-    m->pos[1] = m->waterLevel - 100;
++    // !BUG: Causes waterbox upwarp
++    // m->pos[1] = m->waterLevel - 100;
+ 
+     m->faceAngle[2] = 0;
+ 
+diff --git a/src/game/mario.h b/src/game/mario.h
+index ad0d005..3b050b4 100644
+--- a/src/game/mario.h
++++ b/src/game/mario.h
+@@ -46,6 +46,7 @@ s32 hurt_and_set_mario_action(struct MarioState *m, u32 action, u32 actionArg, s
+ s32 check_common_action_exits(struct MarioState *m);
+ s32 check_common_hold_action_exits(struct MarioState *m);
+ s32 transition_submerged_to_walking(struct MarioState *m);
++s32 transition_submerged_to_airborne(struct MarioState *m);
+ s32 set_water_plunge_action(struct MarioState *m);
+ s32 execute_mario_action(UNUSED struct Object *o);
+ void init_mario(void);
+diff --git a/src/game/mario_actions_submerged.c b/src/game/mario_actions_submerged.c
+index 72e845f..40c480b 100644
+--- a/src/game/mario_actions_submerged.c
++++ b/src/game/mario_actions_submerged.c
+@@ -1497,7 +1497,8 @@ static s32 act_hold_metal_water_fall_land(struct MarioState *m) {
+ static s32 check_common_submerged_cancels(struct MarioState *m) {
+     if (m->pos[1] > m->waterLevel - 80) {
+         if (m->waterLevel - 80 > m->floorHeight) {
+-            m->pos[1] = m->waterLevel - 80;
++            // m->pos[1] = m->waterLevel - 80; //! BUG: Downwarp swimming out of waterfalls
++            return transition_submerged_to_airborne(m);
+         } else {
+             //! If you press B to throw the shell, there is a ~5 frame window
+             // where your held object is the shell, but you are not in the
+diff --git a/src/game/mem_error_screen.c b/src/game/mem_error_screen.c
+new file mode 100644
+index 0000000..81efaf9
+--- /dev/null
++++ b/src/game/mem_error_screen.c
+@@ -0,0 +1,104 @@
++/* clang-format off */
++/*
++ * mem_error_screen.inc.c
++ *
++ * This enhancement should be used for ROM hacks that require the expansion pak.
++ *
++ */
++/* clang-format on */
++
++#include <types.h>
++#include "segments.h"
++#include "text_strings.h"
++#include "game_init.h"
++#include "main.h"
++#include "print.h"
++#include "ingame_menu.h"
++#include "segment2.h"
++#include "../engine/level_script.h"
++
++// Ensure that USE_EXT_RAM is defined.
++#ifndef USE_EXT_RAM
++#error You have to define USE_EXT_RAM in 'include/segments.h'
++#endif
++
++// Require 8 MB of RAM, even if the pool doesn't go into extended memory.
++// Change the '8' to whatever MB limit you want.
++// Note: only special emulators allow for RAM sizes above 8 MB.
++#define REQUIRED_MIN_MEM_SIZE 1048576 * 8
++
++u8 gNotEnoughMemory = FALSE;
++u8 gDelayForErrorMessage = 0;
++
++u8 does_pool_end_lie_out_of_bounds(void *end) {
++    u32 endPhy = ((u32) end) & 0x1FFFFFFF;
++    u32 memSize = *((u32 *) 0x80000318);
++
++    if (endPhy > memSize) {
++        gNotEnoughMemory = TRUE;
++        return TRUE;
++    } else {
++        if (memSize < REQUIRED_MIN_MEM_SIZE) {
++            gNotEnoughMemory = TRUE;
++        }
++        return FALSE;
++    }
++}
++
++// If you're using an N64 console, then you will need to buy an\nexpansion pak to play this ROM hack.
++u8 text_console_8mb[] = { TEXT_CONSOLE_8MB };
++
++// If you are using PJ64 1.6, go to: Options ► Settings ► Rom Settings Tab ► Memory Size then select 8
++// MB from the drop-down box.
++u8 text_pj64[] = { TEXT_PJ64 };
++
++// If you are using PJ64 2.X, go to: Options ► Settings ► Config: ► Memory Size, select 8 MB
++u8 text_pj64_2[] = { TEXT_PJ64_2 };
++
++Gfx *geo18_display_error_message(u32 run, UNUSED struct GraphNode *sp44, UNUSED u32 sp48) {
++    if (run) {
++        if (gDelayForErrorMessage > 0) {
++            // Draw color text title.
++            print_text(10, 210, "ERROR    Need more memory");
++
++            // Init generic text rendering
++            create_dl_ortho_matrix();
++            gSPDisplayList(gDisplayListHead++,
++                           dl_ia_text_begin); // Init rendering stuff for generic text
++
++            // Set text color to white
++            gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
++
++            print_generic_string(8, 170, text_console_8mb);
++            print_generic_string(8, 120, text_pj64);
++            print_generic_string(8, 54, text_pj64_2);
++
++            // Cleanup
++            gSPDisplayList(gDisplayListHead++,
++                           dl_ia_text_end); // Reset back to default render settings.
++            gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
++        } else {
++            gDelayForErrorMessage += 1;
++        }
++    }
++
++    return 0;
++}
++
++// Basic main loop for the error screen. Note that controllers are not enabled here.
++void thread5_mem_error_message_loop(UNUSED void *arg) {
++    struct LevelCommand *addr;
++
++    setup_game_memory();
++    set_vblank_handler(2, &gGameVblankHandler, &gGameVblankQueue, (OSMesg) 1);
++
++    addr = segmented_to_virtual(level_script_entry_error_screen);
++
++    rendering_init();
++
++    while (1) {
++        config_gfx_pool();
++        addr = level_script_execute(addr);
++        display_and_vsync();
++    }
++}
+\ No newline at end of file
+diff --git a/src/game/mem_error_screen.h b/src/game/mem_error_screen.h
+new file mode 100644
+index 0000000..9fbff34
+--- /dev/null
++++ b/src/game/mem_error_screen.h
+@@ -0,0 +1,8 @@
++#ifndef MEM_ERROR_SCREEN_H
++#define MEM_ERROR_SCREEN_H
++
++extern u8 gNotEnoughMemory;
++void thread5_mem_error_message_loop(UNUSED void *arg);
++u8 does_pool_end_lie_out_of_bounds(void *end);
++
++#endif
+diff --git a/src/game/rendering_graph_node.c b/src/game/rendering_graph_node.c
+index bd6f566..351ae18 100644
+--- a/src/game/rendering_graph_node.c
++++ b/src/game/rendering_graph_node.c
+@@ -696,7 +696,7 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
+             gMatStackFixed[gMatStackIndex] = mtx;
+             if (gShadowAboveWaterOrLava == 1) {
+                 geo_append_display_list((void *) VIRTUAL_TO_PHYSICAL(shadowList), 4);
+-            } else if (gMarioOnIceOrCarpet == 1) {
++            } else if (gMarioOnIceOrCarpet == 1 || gShadowAboveCustomWater == 1) {
+                 geo_append_display_list((void *) VIRTUAL_TO_PHYSICAL(shadowList), 5);
+             } else {
+                 geo_append_display_list((void *) VIRTUAL_TO_PHYSICAL(shadowList), 6);
+diff --git a/src/game/shadow.c b/src/game/shadow.c
+index 5ff6bed..facc323 100644
+--- a/src/game/shadow.c
++++ b/src/game/shadow.c
+@@ -102,6 +102,7 @@ shadowRectangle rectangles[2] = {
+ 
+ // See shadow.h for documentation.
+ s8 gShadowAboveWaterOrLava;
++s8 gShadowAboveCustomWater;
+ s8 gMarioOnIceOrCarpet;
+ s8 sMarioOnFlyingCarpet;
+ s16 sSurfaceTypeBelowShadow;
+@@ -177,14 +178,15 @@ u8 dim_shadow_with_distance(u8 solidity, f32 distFromFloor) {
+  * Return the water level below a shadow, or 0 if the water level is below
+  * -10,000.
+  */
+-f32 get_water_level_below_shadow(struct Shadow *s) {
+-    f32 waterLevel = find_water_level(s->parentX, s->parentZ);
++f32 get_water_level_below_shadow(struct Shadow *s, struct Surface **waterFloor) {
++    f32 waterLevel = find_water_level_and_floor(s->parentX, s->parentZ, waterFloor);
+     if (waterLevel < -10000.0) {
+         return 0;
+     } else if (s->parentY >= waterLevel && s->floorHeight <= waterLevel) {
+         gShadowAboveWaterOrLava = TRUE;
+         return waterLevel;
+     }
++    return waterLevel;
+     //! @bug Missing return statement. This compiles to return `waterLevel`
+     //! incidentally.
+ }
+@@ -201,6 +203,7 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale,
+     f32 waterLevel;
+     f32 floorSteepness;
+     struct FloorGeometry *floorGeometry;
++    struct Surface *waterFloor = NULL;
+ 
+     s->parentX = xPos;
+     s->parentY = yPos;
+@@ -208,18 +211,33 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale,
+ 
+     s->floorHeight = find_floor_height_and_data(s->parentX, s->parentY, s->parentZ, &floorGeometry);
+ 
+-    if (gEnvironmentRegions != 0) {
+-        waterLevel = get_water_level_below_shadow(s);
+-    }
++    waterLevel = get_water_level_below_shadow(s, &waterFloor);
++
++    // if (gEnvironmentRegions != 0) {
++    //     waterLevel = get_water_level_below_shadow(s);
++    // }
++
+     if (gShadowAboveWaterOrLava) {
+         //! @bug Use of potentially undefined variable `waterLevel`
+         s->floorHeight = waterLevel;
+ 
+-        // Assume that the water is flat.
+-        s->floorNormalX = 0;
+-        s->floorNormalY = 1.0;
+-        s->floorNormalZ = 0;
+-        s->floorOriginOffset = -waterLevel;
++        if (waterFloor != NULL) {
++            s->floorNormalX = waterFloor->normal.x;
++            s->floorNormalY = waterFloor->normal.y;
++            s->floorNormalZ = waterFloor->normal.z;
++            s->floorOriginOffset = waterFloor->originOffset;
++            gShadowAboveWaterOrLava = FALSE;
++            gShadowAboveCustomWater = TRUE;
++            s->solidity = 200;
++        } else {
++            gShadowAboveCustomWater = FALSE;
++            // Assume that the water is flat.
++            s->floorNormalX = 0;
++            s->floorNormalY = 1.0;
++            s->floorNormalZ = 0;
++            s->floorOriginOffset = -waterLevel;
++        }
++
+     } else {
+         // Don't draw a shadow if the floor is lower than expected possible,
+         // or if the y-normal is negative (an unexpected result).
+@@ -853,6 +871,7 @@ Gfx *create_shadow_below_xyz(f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, u8 s
+     find_floor(xPos, yPos, zPos, &pfloor);
+ 
+     gShadowAboveWaterOrLava = FALSE;
++    gShadowAboveCustomWater = FALSE;
+     gMarioOnIceOrCarpet = 0;
+     sMarioOnFlyingCarpet = 0;
+     if (pfloor != NULL) {
+diff --git a/src/game/shadow.h b/src/game/shadow.h
+index 36b3ef0..528659a 100644
+--- a/src/game/shadow.h
++++ b/src/game/shadow.h
+@@ -38,6 +38,7 @@ extern s16 sSurfaceTypeBelowShadow;
+  * Flag for if the current shadow is above water or lava.
+  */
+ extern s8 gShadowAboveWaterOrLava;
++extern s8 gShadowAboveCustomWater;
+ 
+ /**
+  * Flag for if Mario is on ice or a flying carpet.

@@ -1,0 +1,17 @@
+extern const GeoLayout woodenplatform_geo[];
+extern Lights1 woodenplatform_Wood_001_layer4_lights;
+extern Lights1 woodenplatform_sm64_material_lights;
+extern u8 woodenplatform__3_ci8[];
+extern u8 woodenplatform__3_ci8_pal_rgba16[];
+extern u8 woodenplatform_scaffold_ci8[];
+extern u8 woodenplatform_scaffold_ci8_pal_rgba16[];
+extern Vtx woodenplatform_Flying_Fartress_003_mesh_vtx_0[24];
+extern Gfx woodenplatform_Flying_Fartress_003_mesh_tri_0[];
+extern Vtx woodenplatform_Flying_Fartress_003_mesh_vtx_1[16];
+extern Gfx woodenplatform_Flying_Fartress_003_mesh_tri_1[];
+extern Gfx mat_woodenplatform_Wood_001_layer4[];
+extern Gfx mat_revert_woodenplatform_Wood_001_layer4[];
+extern Gfx mat_woodenplatform_sm64_material[];
+extern Gfx mat_revert_woodenplatform_sm64_material[];
+extern Gfx woodenplatform_Flying_Fartress_003_mesh[];
+extern Gfx woodenplatform_material_revert_render_settings[];
