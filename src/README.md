@@ -1,0 +1,2 @@
+# Source Code
+This is the source code for the "Super Mario 64: Warped Worlds" project. This was built off of the SM64 decomp (https://github.com/n64decomp/sm64) and requires the same dependencies. You will need a US SM64 rom to compile this. Source files, such as maps and objects, are available in the /sources/ directory. You are not allowed to use these assets in your own personal projects without permission. Please contact me either through my Twitter or Discord if you want to ask me for permission.
