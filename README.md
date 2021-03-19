@@ -18,7 +18,7 @@ Greenfield - Compositions, being an absolute bro
 blameitontherobot - Compositions, modeler, minor programming
 superdave - Modeler, renders
 MariHalo - Modeler
-tele - Modeler, minor programming
+tele - Modeler
 ```
 
 ## This project also had several contributors, which are the following:
