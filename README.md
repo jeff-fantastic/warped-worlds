@@ -6,7 +6,7 @@ I've dealt with so many people that have the power to put the project or me in d
 I do not want to let this project go with a whimper, though. I would like to share with you all the source code and many of the major builds of this project. I feel like you all deserve it for putting so much faith into me and all of the amazing people that put their time into this. Thank you all for sticking by my side for nearly a year now, I truly appreciate you all.
 
 # Builds
-Build patch files are available in /patches/. You will need a patcher program and a US rom of SM64. Changelogs are not available between builds, but approximate dates are provided.
+Build patch files are available in /builds/. You will need a patcher program and a US rom of SM64. Changelogs are not available between builds, but approximate dates are provided.
 
 # Source Code
 Source code is available in /src/. You will need a US rom of SM64. My code is reaaaally messy, since I've worked on this since I first started learning C. Everything should work fine though.
