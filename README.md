@@ -35,4 +35,5 @@ Sinclair - painting contest
 Godly - textures
 Teevee - painting contest
 Tom in real - painting contest
+SquidBoi84 - painting contest
 ```
